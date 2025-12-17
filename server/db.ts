@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertTask, InsertUser, tasks, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,79 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function getUserTasks(userId: number, priority?: "low" | "medium" | "high") {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get tasks: database not available");
+    return [];
+  }
+
+  const conditions = [eq(tasks.userId, userId)];
+  if (priority) {
+    conditions.push(eq(tasks.priority, priority));
+  }
+
+  const result = await db
+    .select()
+    .from(tasks)
+    .where(and(...conditions))
+    .orderBy(desc(tasks.createdAt));
+
+  return result;
+}
+
+export async function createTask(task: InsertTask) {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  const result = await db.insert(tasks).values(task);
+  return result;
+}
+
+export async function updateTask(taskId: number, userId: number, updates: Partial<InsertTask>) {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  await db
+    .update(tasks)
+    .set(updates)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)));
+}
+
+export async function deleteTask(taskId: number, userId: number) {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  await db.delete(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)));
+}
+
+export async function toggleTaskStatus(taskId: number, userId: number) {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  const task = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+    .limit(1);
+
+  if (task.length === 0) {
+    throw new Error("Task not found");
+  }
+
+  const newStatus = task[0].status === "pending" ? "completed" : "pending";
+  await db
+    .update(tasks)
+    .set({ status: newStatus })
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)));
+
+  return newStatus;
+}
